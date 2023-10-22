@@ -423,6 +423,13 @@ enum {
     // The input event should still be sent to the InputDispatcher so that it can see all
     // input events received include those that it will not deliver.
     POLICY_FLAG_PASS_TO_USER = 0x40000000,
+
+    /* These flags are set by the SystemGesture. */
+    POLICY_FLAG_SYSTEM_GESTURE_DOWN = 0x100,
+    POLICY_FLAG_SYSTEM_GESTURE_MOVE = 0x200,
+    POLICY_FLAG_SYSTEM_GESTURE_MOVE_TRIGGERED = 0x400,
+    POLICY_FLAG_SYSTEM_GESTURE_RESET = 0x800,
+    POLICY_FLAG_SYSTEM_GESTURE_CANCELED = 0x1000,
 };
 
 /**
