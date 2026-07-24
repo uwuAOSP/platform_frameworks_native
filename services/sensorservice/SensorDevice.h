@@ -105,6 +105,7 @@ public:
             const std::vector<int32_t>& dynamicSensorHandlesRemoved) override;
 
     void setUidStateForConnection(void* ident, SensorService::UidState state);
+    void setApplicationSensorAccessForConnection(void* ident, bool allowed);
 
     bool isReconnecting() const { return mHalWrapper->mReconnecting; }
 
@@ -203,6 +204,7 @@ private:
 
         // Sensors are restricted for all clients.
         DISABLED_REASON_SERVICE_RESTRICTED,
+        DISABLED_REASON_APPLICATION_POLICY,
         DISABLED_REASON_MAX,
     };
 

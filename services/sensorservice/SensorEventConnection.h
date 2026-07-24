@@ -68,10 +68,15 @@ public:
     bool needsWakeLock();
     void resetWakeLockRefCount();
     String8 getPackageName() const;
+    const String16& getOpPackageName() const { return mOpPackageName; }
 
     uid_t getUid() const { return mUid; }
     // cap/uncap existing connection depending on the state of the mic toggle.
     void onMicSensorAccessChanged(bool isMicToggleOn);
+    void onApplicationSensorAccessChanged(bool allowed);
+    bool isApplicationSensorAccessAllowed() const {
+        return mApplicationSensorAccessAllowed.load();
+    }
     userid_t getUserId() const { return mUserId; }
 
 private:
@@ -165,6 +170,7 @@ private:
     bool mDead;
 
     bool mDataInjectionMode;
+    std::atomic_bool mApplicationSensorAccessAllowed;
     struct FlushInfo {
         // The number of flush complete events dropped for this sensor is stored here.  They are
         // sent separately before the next batch of events.
@@ -217,4 +223,3 @@ private:
 } // namepsace android
 
 #endif // ANDROID_SENSOR_EVENT_CONNECTION_H
-

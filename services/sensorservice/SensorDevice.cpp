@@ -707,6 +707,30 @@ void SensorDevice::setUidStateForConnection(void* ident, SensorService::UidState
     }
 }
 
+void SensorDevice::setApplicationSensorAccessForConnection(void* ident, bool allowed) {
+    Mutex::Autolock _l(mLock);
+    if (allowed) {
+        removeDisabledReasonForIdentLocked(
+                ident, DisabledReason::DISABLED_REASON_APPLICATION_POLICY);
+    } else {
+        addDisabledReasonForIdentLocked(ident, DisabledReason::DISABLED_REASON_APPLICATION_POLICY);
+    }
+
+    for (size_t i = 0; i < mActivationCount.size(); ++i) {
+        int handle = mActivationCount.keyAt(i);
+        Info& info = mActivationCount.editValueAt(i);
+        if (!info.hasBatchParamsForIdent(ident)) {
+            continue;
+        }
+        updateBatchParamsLocked(handle, info);
+        bool disable = info.numActiveClients() == 0 && info.isActive;
+        bool enable = info.numActiveClients() > 0 && !info.isActive;
+        if ((enable || disable) && doActivateHardwareLocked(handle, enable) == NO_ERROR) {
+            info.isActive = enable;
+        }
+    }
+}
+
 bool SensorDevice::isSensorActive(int handle) const {
     Mutex::Autolock _l(mLock);
     ssize_t activationIndex = mActivationCount.indexOfKey(handle);
