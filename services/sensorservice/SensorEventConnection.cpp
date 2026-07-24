@@ -47,6 +47,7 @@ SensorService::SensorEventConnection::SensorEventConnection(
         mHasLooperCallbacks(false),
         mDead(false),
         mDataInjectionMode(isDataInjectionMode),
+        mApplicationSensorAccessAllowed(true),
         mEventCache(nullptr),
         mCacheSize(0),
         mMaxCacheSize(0),
@@ -468,7 +469,23 @@ status_t SensorService::SensorEventConnection::sendEvents(
 
 bool SensorService::SensorEventConnection::hasSensorAccess() {
     return mService->isUidActive(mUid) && !mService->isPidFrozen(mPid) &&
-            !mService->mSensorPrivacyPolicy->isSensorPrivacyEnabled();
+            !mService->mSensorPrivacyPolicy->isSensorPrivacyEnabled() &&
+            mApplicationSensorAccessAllowed.load();
+}
+
+void SensorService::SensorEventConnection::onApplicationSensorAccessChanged(bool allowed) {
+    mApplicationSensorAccessAllowed.store(allowed);
+    if (allowed) {
+        return;
+    }
+    Mutex::Autolock _l(mConnectionLock);
+    mCacheSize = 0;
+    mWakeLockRefCount = 0;
+    for (auto& [handle, flushInfo] : mSensorInfo) {
+        flushInfo.mPendingFlushEventsToSend = 0;
+        flushInfo.mFirstFlushPending = false;
+    }
+    updateLooperRegistrationLocked(mService->getLooper());
 }
 
 bool SensorService::SensorEventConnection::noteOpIfRequired(const sensors_event_t& event) {
@@ -616,6 +633,11 @@ void SensorService::SensorEventConnection::writeToSocketFromCache() {
     const int maxWriteSize = helpers::min(SensorEventQueue::MAX_RECEIVE_BUFFER_EVENT_COUNT/2,
             int(mService->mSocketBufferSize/(sizeof(sensors_event_t)*2)));
     Mutex::Autolock _l(mConnectionLock);
+    if (!hasSensorAccess()) {
+        mCacheSize = 0;
+        updateLooperRegistrationLocked(mService->getLooper());
+        return;
+    }
     // Send pending flush complete events (if any)
     sendPendingFlushEventsLocked();
     for (int numEventsSent = 0; numEventsSent < mCacheSize;) {
@@ -1010,4 +1032,3 @@ void SensorService::SensorEventConnection::onSensorAccessChanged(bool hasAccess)
 }
 
 } // namespace android
-

@@ -537,7 +537,55 @@ bool SensorService::hasSensorAccess(uid_t uid, const String16& opPackageName) {
 
 bool SensorService::hasSensorAccessLocked(uid_t uid, const String16& opPackageName) {
     return !mSensorPrivacyPolicy->isSensorPrivacyEnabled()
-        && isUidActive(uid) && !isOperationRestrictedLocked(opPackageName);
+        && isUidActive(uid) && !isOperationRestrictedLocked(opPackageName)
+        && mApplicationSensorDeniedPackages.count(
+                {multiuser_get_user_id(uid), opPackageName}) == 0;
+}
+
+bool SensorService::isPackageOwnedByUid(const String16& opPackageName, uid_t uid) {
+    if (!multiuser_get_app_id(uid) || multiuser_get_app_id(uid) < AID_APP_START) {
+        return true;
+    }
+    sp<IBinder> binder = defaultServiceManager()->getService(String16("package_native"));
+    if (binder == nullptr) {
+        return false;
+    }
+    sp<content::pm::IPackageManagerNative> packageManager =
+            interface_cast<content::pm::IPackageManagerNative>(binder);
+    if (packageManager == nullptr) {
+        return false;
+    }
+    int32_t packageUid = -1;
+    const binder::Status status = packageManager->getPackageUid(
+            String8(opPackageName).c_str(), 0, multiuser_get_user_id(uid), &packageUid);
+    return status.isOk() && packageUid == static_cast<int32_t>(uid);
+}
+
+void SensorService::setApplicationSensorAccess(userid_t userId, const String16& opPackageName,
+                                               bool allowed) {
+    ConnectionSafeAutolock connLock = mConnectionHolder.lock(mLock);
+    const auto key = std::make_pair(userId, opPackageName);
+    if (allowed) {
+        mApplicationSensorDeniedPackages.erase(key);
+    } else {
+        mApplicationSensorDeniedPackages.insert(key);
+    }
+
+    SensorDevice& dev(SensorDevice::getInstance());
+    for (const sp<SensorEventConnection>& conn : connLock.getActiveConnections()) {
+        if (conn->getUserId() != userId || conn->getOpPackageName() != opPackageName) {
+            continue;
+        }
+        conn->onApplicationSensorAccessChanged(allowed);
+        dev.setApplicationSensorAccessForConnection(conn.get(), allowed);
+    }
+    for (const sp<SensorDirectConnection>& conn : connLock.getDirectConnections()) {
+        if (conn->getUserId() == userId && conn->getOpPackageName() == opPackageName) {
+            conn->onSensorAccessChanged(
+                    hasSensorAccessLocked(conn->getUid(), conn->getOpPackageName()));
+        }
+    }
+    checkAndReportProxStateChangeLocked();
 }
 
 bool SensorService::registerSensor(std::shared_ptr<SensorInterface> s, bool isDebug, bool isVirtual,
@@ -1640,6 +1688,17 @@ sp<ISensorEventConnection> SensorService::createSensorEventConnection(const Stri
     }
     resetTargetSdkVersionCache(opPackageName);
 
+    uid_t uid = IPCThreadState::self()->getCallingUid();
+    pid_t pid = IPCThreadState::self()->getCallingPid();
+    String8 connPackageName =
+            (packageName == "") ? String8::format("unknown_package_pid_%d", pid) : packageName;
+    String16 connOpPackageName =
+            (opPackageName == String16("")) ? String16(connPackageName) : opPackageName;
+    if (!isPackageOwnedByUid(connOpPackageName, uid)) {
+        ALOGE("Package %s does not belong to uid %d", String8(connOpPackageName).c_str(), uid);
+        return nullptr;
+    }
+
     Mutex::Autolock _l(mLock);
     // To create a client in DATA_INJECTION mode to inject data, SensorService should already be
     // operating in DI mode.
@@ -1659,16 +1718,12 @@ sp<ISensorEventConnection> SensorService::createSensorEventConnection(const Stri
       }
     }
 
-    uid_t uid = IPCThreadState::self()->getCallingUid();
-    pid_t pid = IPCThreadState::self()->getCallingPid();
-
-    String8 connPackageName =
-            (packageName == "") ? String8::format("unknown_package_pid_%d", pid) : packageName;
-    String16 connOpPackageName =
-            (opPackageName == String16("")) ? String16(connPackageName) : opPackageName;
     sp<SensorEventConnection> result(new SensorEventConnection(this, uid, pid, connPackageName,
                                                                isInjectionMode(requestedMode),
                                                                connOpPackageName, attributionTag));
+    result->onApplicationSensorAccessChanged(
+            mApplicationSensorDeniedPackages.count(
+                    {multiuser_get_user_id(uid), connOpPackageName}) == 0);
     if (isInjectionMode(requestedMode)) {
         mConnectionHolder.addEventConnectionIfNotPresent(result);
         // Add the associated file descriptor to the Looper for polling whenever there is data to
@@ -1702,8 +1757,13 @@ sp<ISensorEventConnection> SensorService::createSensorDirectConnection(
         const String16& opPackageName, int deviceId, uint32_t size, int32_t type, int32_t format,
         const native_handle *resource) {
     resetTargetSdkVersionCache(opPackageName);
-    ConnectionSafeAutolock connLock = mConnectionHolder.lock(mLock);
+    uid_t uid = IPCThreadState::self()->getCallingUid();
+    if (!isPackageOwnedByUid(opPackageName, uid)) {
+        ALOGE("Package %s does not belong to uid %d", String8(opPackageName).c_str(), uid);
+        return nullptr;
+    }
 
+    ConnectionSafeAutolock connLock = mConnectionHolder.lock(mLock);
     // No new direct connections are allowed when sensor privacy is enabled
     if (mSensorPrivacyPolicy->isSensorPrivacyEnabled()) {
         ALOGE("Cannot create new direct connections when sensor privacy is enabled");
@@ -1716,8 +1776,6 @@ sp<ISensorEventConnection> SensorService::createSensorDirectConnection(
         .size = size,
         .handle = resource,
     };
-    uid_t uid = IPCThreadState::self()->getCallingUid();
-
     if (mem.handle == nullptr) {
         ALOGE("Failed to clone resource handle");
         return nullptr;
@@ -2250,6 +2308,7 @@ status_t SensorService::enable(const sp<SensorEventConnection>& connection,
     }
 
     ConnectionSafeAutolock connLock = mConnectionHolder.lock(mLock);
+    SensorDevice& dev(SensorDevice::getInstance());
     if (mCurrentOperatingMode != NORMAL &&
         !isInjectionMode(mCurrentOperatingMode) &&
         !isAllowListedPackage(connection->getPackageName())) {
@@ -2315,6 +2374,9 @@ status_t SensorService::enable(const sp<SensorEventConnection>& connection,
         // the sensor was added (which means it wasn't already there)
         // so, see if this connection becomes active
         mConnectionHolder.addEventConnectionIfNotPresent(connection);
+        dev.setApplicationSensorAccessForConnection(connection.get(),
+                mApplicationSensorDeniedPackages.count(
+                        {connection->getUserId(), connection->getOpPackageName()}) == 0);
     } else {
         ALOGW("sensor %08x already enabled in connection %p (ignoring)",
             handle, connection.get());
@@ -2437,6 +2499,9 @@ status_t SensorService::setEventRate(const sp<SensorEventConnection>& connection
         int handle, nsecs_t ns, const String16& opPackageName) {
     if (mInitCheck != NO_ERROR)
         return mInitCheck;
+    if (!connection->isApplicationSensorAccessAllowed()) {
+        return PERMISSION_DENIED;
+    }
 
     std::shared_ptr<SensorInterface> sensor = getSensorInterfaceFromHandle(handle);
     if (sensor == nullptr ||
@@ -2462,6 +2527,9 @@ status_t SensorService::flushSensor(const sp<SensorEventConnection>& connection,
     const int halVersion = dev.getHalDeviceVersion();
     status_t err(NO_ERROR);
     Mutex::Autolock _l(mLock);
+    if (!connection->isApplicationSensorAccessAllowed()) {
+        return PERMISSION_DENIED;
+    }
     // Loop through all sensors for this connection and call flush on each of them.
     for (int handle : connection->getActiveSensorHandles()) {
         std::shared_ptr<SensorInterface> sensor = getSensorInterfaceFromHandle(handle);

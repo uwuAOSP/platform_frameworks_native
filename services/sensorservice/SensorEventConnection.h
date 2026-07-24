@@ -76,6 +76,10 @@ public:
     // cap/uncap existing connection depending on the state of the mic toggle.
     void onMicSensorAccessChanged(bool isMicToggleOn);
     void onSensorAccessChanged(bool hasAccess);
+    void onApplicationSensorAccessChanged(bool allowed);
+    bool isApplicationSensorAccessAllowed() const {
+        return mApplicationSensorAccessAllowed.load();
+    }
     userid_t getUserId() const { return mUserId; }
     void getSensorDurationStats(int32_t handle, int64_t* totalDurationNs,
                                 int64_t* activeDurationNs);
@@ -172,6 +176,7 @@ private:
     bool mDead;
 
     bool mDataInjectionMode;
+    std::atomic_bool mApplicationSensorAccessAllowed;
     struct SensorConnectionRecord {
         struct UsageStats {
             // Time (elapsedRealtimeNano) when the sensor was enabled for this connection.
@@ -203,7 +208,6 @@ private:
                 }
             }
         };
-
         // The number of flush complete events dropped for this sensor is stored here.  They are
         // sent separately before the next batch of events.
         int mPendingFlushEventsToSend;
@@ -259,4 +263,3 @@ private:
 } // namepsace android
 
 #endif // ANDROID_SENSOR_EVENT_CONNECTION_H
-

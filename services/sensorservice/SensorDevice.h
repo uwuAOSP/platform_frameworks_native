@@ -106,6 +106,7 @@ public:
 
     void setUidStateForConnection(void* ident, SensorService::UidState state);
     void setFrozenStateForConnection(void* ident, bool frozen);
+    void setApplicationSensorAccessForConnection(void* ident, bool allowed);
 
     bool isReconnecting() const { return mHalWrapper->mReconnecting; }
 
@@ -205,7 +206,8 @@ private:
         DISABLED_REASON_SERVICE_RESTRICTED = 1,
         // System moved the pid that makes this request to frozen.
         DISABLED_REASON_PID_FROZEN = 2,
-
+        // Per-application policy denied access to sensors.
+        DISABLED_REASON_APPLICATION_POLICY = 3,
         DISABLED_REASON_MAX,
     };
 

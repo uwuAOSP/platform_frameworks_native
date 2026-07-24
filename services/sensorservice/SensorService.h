@@ -42,6 +42,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <queue>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -206,6 +207,8 @@ public:
                               sp<RuntimeSensorCallback> callback) ANDROID_API;
     status_t unregisterRuntimeSensor(int handle) ANDROID_API;
     status_t sendRuntimeSensorEvent(const sensors_event_t& event) ANDROID_API;
+    void setApplicationSensorAccess(userid_t userId, const String16& opPackageName,
+                                    bool allowed) ANDROID_API;
 
     int configureRuntimeSensorDirectChannel(int sensorHandle, const SensorDirectConnection* c,
                                             const sensors_direct_cfg_t* config);
@@ -599,7 +602,7 @@ private:
     bool hasSensorAccess(uid_t uid, const String16& opPackageName);
     // Same as hasSensorAccess but with mLock held.
     bool hasSensorAccessLocked(uid_t uid, const String16& opPackageName);
-
+    static bool isPackageOwnedByUid(const String16& opPackageName, uid_t uid);
     // Overrides the UID state as if it is idle
     status_t handleSetUidState(Vector<String16>& args, int err);
     // Clears the override for the UID state
@@ -698,6 +701,8 @@ private:
     static String16 sSensorInterfaceDescriptorPrefix;
 
     sp<MicrophonePrivacyPolicy> mMicSensorPrivacyPolicy;
+
+    std::set<std::pair<userid_t, String16>> mApplicationSensorDeniedPackages;
 
     // Keeps track of the handles of all proximity sensors in the system.
     std::vector<int32_t> mProxSensorHandles;

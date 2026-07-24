@@ -727,6 +727,12 @@ void SensorDevice::setFrozenStateForConnection(void* ident, bool frozen) {
     setConnectionDisabledStatusLocked(ident, DisabledReason::DISABLED_REASON_PID_FROZEN, frozen);
 }
 
+void SensorDevice::setApplicationSensorAccessForConnection(void* ident, bool allowed) {
+    Mutex::Autolock _l(mLock);
+    setConnectionDisabledStatusLocked(
+            ident, DisabledReason::DISABLED_REASON_APPLICATION_POLICY, !allowed);
+}
+
 bool SensorDevice::isSensorActive(int handle) const {
     Mutex::Autolock _l(mLock);
     ssize_t activationIndex = mActivationCount.indexOfKey(handle);
