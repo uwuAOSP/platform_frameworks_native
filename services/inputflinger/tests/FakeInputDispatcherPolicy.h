@@ -228,6 +228,7 @@ private:
     void interceptKeyBeforeQueueing(const KeyEvent& inputEvent, uint32_t&) override;
     void interceptMotionBeforeQueueing(ui::LogicalDisplayId, uint32_t, int32_t, nsecs_t,
                                        uint32_t&) override;
+    void interceptMotionBeforeQueueingExt(const MotionEvent&, uint32_t&) override {}
     std::variant<nsecs_t, inputdispatcher::KeyEntry::InterceptKeyResult>
     interceptKeyBeforeDispatching(const sp<IBinder>&, const KeyEvent&, uint32_t) override;
     std::optional<KeyEvent> dispatchUnhandledKey(const sp<IBinder>&, const KeyEvent& event,

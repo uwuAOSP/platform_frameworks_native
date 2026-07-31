@@ -118,6 +118,8 @@ public:
                                                int32_t action, nsecs_t when,
                                                uint32_t& policyFlags) = 0;
 
+    virtual void interceptMotionBeforeQueueingExt(const MotionEvent& motionEvent, uint32_t& policyFlags) = 0;
+
     /* Allows the policy a chance to intercept a key before dispatching. */
     virtual std::variant<nsecs_t, inputdispatcher::KeyEntry::InterceptKeyResult>
     interceptKeyBeforeDispatching(const sp<IBinder>& token, const KeyEvent& keyEvent,
