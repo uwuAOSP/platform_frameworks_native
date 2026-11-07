@@ -71,6 +71,10 @@ bool is_multiuser_uid_isolated(uid_t uid) {
     return appid >= AID_ISOLATED_START && appid <= AID_ISOLATED_END;
 }
 
+static bool containsLineage(const std::string& name) {
+    return name.find("lineage") != std::string::npos;
+}
+
 #ifndef VENDORSERVICEMANAGER
 
 struct ManifestWithDescription {
@@ -605,24 +609,24 @@ Status ServiceManager::addService(const std::string& name, const sp<IBinder>& bi
 Status ServiceManager::listServices(int32_t dumpPriority, std::vector<std::string>* outList) {
     SM_PERFETTO_TRACE_FUNC();
 
-    if (!mAccess->canList(mAccess->getCallingContext())) {
+    auto ctx = mAccess->getCallingContext();
+    if (!mAccess->canList(ctx)) {
         return Status::fromExceptionCode(Status::EX_SECURITY, "SELinux denied.");
     }
 
+    const bool filterLineageServices = multiuser_get_app_id(ctx.uid) >= AID_APP;
     size_t toReserve = 0;
     for (auto const& [name, service] : mNameToService) {
-        (void) name;
-
-        if (service.dumpPriority & dumpPriority) ++toReserve;
+        if ((service.dumpPriority & dumpPriority) &&
+            !(filterLineageServices && containsLineage(name))) ++toReserve;
     }
 
     CHECK(outList->empty());
 
     outList->reserve(toReserve);
     for (auto const& [name, service] : mNameToService) {
-        (void) service;
-
-        if (service.dumpPriority & dumpPriority) {
+        if ((service.dumpPriority & dumpPriority) &&
+            !(filterLineageServices && containsLineage(name))) {
             outList->push_back(name);
         }
     }

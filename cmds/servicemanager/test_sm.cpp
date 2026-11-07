@@ -337,6 +337,38 @@ TEST(ListServices, AllServices) {
     EXPECT_THAT(out, ElementsAre("sa", "sb", "sc", "sd"));
 }
 
+TEST(ListServices, RomServicesHiddenFromApps) {
+    std::unique_ptr<MockAccess> access = std::make_unique<NiceMock<MockAccess>>();
+    MockAccess* accessPtr = access.get();
+    ON_CALL(*access, getCallingContext()).WillByDefault(Return(Access::CallingContext{
+            .uid = AID_SYSTEM,
+    }));
+    ON_CALL(*access, canAdd(_, _)).WillByDefault(Return(true));
+    ON_CALL(*access, canList(_)).WillByDefault(Return(true));
+    sp<ServiceManager> sm = sp<NiceMock<MockServiceManager>>::make(std::move(access));
+
+    for (const char* name : {"activity", "lineagehardware", "lineagelivedisplay",
+                             "org.lineageos.hardware.IHardware/default", "vendor.lineagehardware"}) {
+        ASSERT_TRUE(sm->addService(name, getBinder(), false,
+                                   IServiceManager::DUMP_FLAG_PRIORITY_DEFAULT).isOk());
+    }
+
+    std::vector<std::string> out;
+    ASSERT_TRUE(sm->listServices(IServiceManager::DUMP_FLAG_PRIORITY_ALL, &out).isOk());
+    EXPECT_THAT(out, ElementsAre("activity", "lineagehardware", "lineagelivedisplay",
+                                 "org.lineageos.hardware.IHardware/default", "vendor.lineagehardware"));
+
+    for (uid_t uid : {static_cast<uid_t>(AID_APP_START),
+                      static_cast<uid_t>(AID_APP_START + 100000)}) {
+        ON_CALL(*accessPtr, getCallingContext()).WillByDefault(Return(Access::CallingContext{
+                .uid = uid,
+        }));
+        out.clear();
+        ASSERT_TRUE(sm->listServices(IServiceManager::DUMP_FLAG_PRIORITY_ALL, &out).isOk());
+        EXPECT_THAT(out, ElementsAre("activity"));
+    }
+}
+
 TEST(ListServices, CriticalServices) {
     auto sm = getPermissiveServiceManager();
 
